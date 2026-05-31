@@ -15,8 +15,10 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-load the YOLO weights file from local workspace to guarantee offline readiness
-COPY yolov8s.pt /app/yolov8s.pt
+# Download the YOLO weights file during build time to guarantee instant container startup
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    curl -L -o /app/yolov8s.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8s.pt && \
+    apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Copy backend application and pipeline tracking engine code
 COPY backend/app/ /app/app/
