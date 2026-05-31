@@ -1,0 +1,15 @@
+# ========================================================
+# AURA AI Retail Platform Infrastructure-as-Code Configuration
+# ========================================================
+
+services:
+  - type: web
+    name: purplle-smart-cctv-api
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: .
+    port: 8000
+    plan: standard # Recommends standard tier for YOLO memory capacity
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"

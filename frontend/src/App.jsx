@@ -15,7 +15,17 @@ const VITE_WS_URL = import.meta.env.VITE_WS_URL;
 
 const HOST_IP = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const API_BASE_URL = VITE_API_URL || `http://${HOST_IP}:8000`;
-const WEBSOCKET_URL = VITE_WS_URL || `ws://${HOST_IP}:8000/ws/stream/${STORE_ID}`;
+
+// Dynamically resolve WebSocket URL with SSL (wss://) support to prevent Mixed Content SecurityError
+let WEBSOCKET_URL;
+if (VITE_WS_URL) {
+  WEBSOCKET_URL = VITE_WS_URL.endsWith('/') 
+    ? `${VITE_WS_URL}ws/stream/${STORE_ID}` 
+    : `${VITE_WS_URL}/ws/stream/${STORE_ID}`;
+} else {
+  const wsProtocol = typeof window !== 'undefined' && window.location.protocol === "https:" ? "wss" : "ws";
+  WEBSOCKET_URL = `${wsProtocol}://${HOST_IP}:8000/ws/stream/${STORE_ID}`;
+}
 
 export default function App() {
   // Analytical stats state
