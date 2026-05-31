@@ -1,11 +1,15 @@
 FROM python:3.10-slim
 
 # Install system dependencies for OpenCV and machine learning
+# Note: libgl1-mesa-glx was removed in Debian Trixie; use libgl1 instead
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libgomp1 \
+    libsm6 \
+    libxext6 \
+    ffmpeg \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
