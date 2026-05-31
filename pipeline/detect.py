@@ -72,12 +72,12 @@ async def run_video_pipeline(video_id: str, video_path: str, store_id: str, came
         color_lookup=sv.ColorLookup.TRACK
     )
 
-    # 4. Load YOLOv8 Model (reuse downloaded yolov8s.pt in root)
-    model_path = "./yolov8s.pt"
+    # 4. Load YOLOv8 Nano Model (yolov8n.pt, 6MB - fits under 512MB Render free tier)
+    model_path = "/app/yolov8n.pt"    # Docker primary path (downloaded at build time)
     if not os.path.exists(model_path):
-        model_path = "../yolov8s.pt"  # Docker path fallback
+        model_path = "./yolov8n.pt"   # local dev fallback
     if not os.path.exists(model_path):
-        model_path = "yolov8s.pt"     # CLI local fallback
+        model_path = "yolov8n.pt"     # CLI local fallback
         
     try:
         model = YOLO(model_path)
