@@ -8,6 +8,7 @@ import cv2
 import supervision as sv
 from ultralytics import YOLO
 from sqlalchemy.future import select
+import gc
 
 from app.database import AsyncSessionLocal, DBVideoProcessing, DBEvent
 from app.websocket import ws_manager
@@ -115,6 +116,11 @@ async def run_video_pipeline(video_id: str, video_path: str, store_id: str, came
                         logger.warning(f"Video {video_id} has been wiped by a newer upload. Aborting pipeline task.")
                         break
             
+            # Skip frames: process only every 5th frame or the absolute last frame
+            if frame_idx % 5 != 0 and frame_idx != total_frames:
+                await asyncio.sleep(0.002)  # Yield control to the event loop
+                continue
+            
             # Rate limit frames inside database status update (every 25 frames)
             if frame_idx % 25 == 0 or frame_idx == total_frames:
                 progress = round((frame_idx / total_frames) * 100.0, 1)
@@ -211,35 +217,48 @@ async def run_video_pipeline(video_id: str, video_path: str, store_id: str, came
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (59, 130, 246), 1)
             
             # 7. Convert frame to Base64 JPEG for WebSocket broadcast
-            # To maximize real-time performance, throttle streaming (broadcast every 2 frames ~12.5 FPS)
-            if frame_idx % 2 == 0 or frame_idx == total_frames:
-                # Resize slightly to minimize bandwidth without losing visual crispness
-                resized_frame = cv2.resize(annotated_frame, (960, 540))
-                _, buffer = cv2.imencode(".jpg", resized_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                base64_str = base64.b64encode(buffer).decode("utf-8")
-                
-                # Fetch rolling dashboard statistics to synchronize
+            # To maximize real-time performance, we broadcast every processed frame
+            # Resize slightly to minimize bandwidth without losing visual crispness
+            resized_frame = cv2.resize(annotated_frame, (960, 540))
+            _, buffer = cv2.imencode(".jpg", resized_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            base64_str = base64.b64encode(buffer).decode("utf-8")
+            
+            # Fetch rolling dashboard statistics to synchronize only every 25 frames
+            if frame_idx % 25 == 0 or frame_idx == total_frames:
                 async with AsyncSessionLocal() as db:
                     metrics = await calculate_store_metrics(db, store_id)
                     funnel = await calculate_store_funnel(db, store_id)
                     heatmap = await calculate_store_heatmap(db, store_id)
                     anomalies = await detect_store_anomalies(db, store_id)
+                metrics_dict = metrics.dict()
+                funnel_dict = funnel.dict()
+                heatmap_dict = heatmap.dict()
+                anomalies_dict = anomalies.dict()
+            else:
+                metrics_dict = None
+                funnel_dict = None
+                heatmap_dict = None
+                anomalies_dict = None
+            
+            # Send frame and dashboard metrics via WebSocket
+            await ws_manager.broadcast_json({
+                "type": "live_frame",
+                "video_id": video_id,
+                "frame": f"data:image/jpeg;base64,{base64_str}",
+                "progress": round((frame_idx / total_frames) * 100.0, 1),
+                "metrics": metrics_dict,
+                "funnel": funnel_dict,
+                "heatmap": heatmap_dict,
+                "anomalies": anomalies_dict,
+                "latest_event": frame_events[-1] if frame_events else None
+            })
                 
-                # Send frame and dashboard metrics via WebSocket
-                await ws_manager.broadcast_json({
-                    "type": "live_frame",
-                    "video_id": video_id,
-                    "frame": f"data:image/jpeg;base64,{base64_str}",
-                    "progress": round((frame_idx / total_frames) * 100.0, 1),
-                    "metrics": metrics.dict(),
-                    "funnel": funnel.dict(),
-                    "heatmap": heatmap.dict(),
-                    "anomalies": anomalies.dict(),
-                    "latest_event": frame_events[-1] if frame_events else None
-                })
-                
-            # Brief sleep to simulate real-time frame pacing (about 40ms for 25 FPS)
-            await asyncio.sleep(0.04)
+            # Brief sleep to simulate real-time frame pacing (about 10ms)
+            await asyncio.sleep(0.01)
+            
+            # Periodically invoke garbage collector to prevent memory accumulation
+            if frame_idx % 25 == 0:
+                gc.collect()
 
         # 8. Finished processing video file successfully
         logger.info(f"Video pipeline finished processing successfully for video_id={video_id}!")
